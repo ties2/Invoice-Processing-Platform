@@ -1,0 +1,11 @@
+ACME Trading B.V.
+Invoice Number: INV-2026-0042
+Date: 15-08-2026
+Description        Qty     Price      Amount
+Widget A          2       50,00      100,00
+Cable set         10      12,50      125,00
+Service fee       1       75,00      75,00
+Subtotal                             300,00
+VAT 21%                               63,00
+Total                                363,00
+Currency: EUR

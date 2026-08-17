@@ -1,0 +1,9 @@
+KPN B.V.
+Invoice Number: INV-2026-1234
+Date: 12-08-2026
+Description                 Amount
+Internet subscription       1000,00
+Subtotal                    1000,00
+VAT 21%                       210,00
+Total                       1210,00
+Currency: EUR
