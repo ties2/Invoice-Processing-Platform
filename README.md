@@ -1,6 +1,6 @@
 # Invoice Processing Platform (IPP)
 
-It is deliberately built as a layered platform where the model is a small,
+It's deliberately built as a layered platform where the model is a small,
 swappable component and the value is the engineering around it: safe rollout of
 new extractors, deterministic financial validation, confidence-based routing,
 observability, and drift detection.
