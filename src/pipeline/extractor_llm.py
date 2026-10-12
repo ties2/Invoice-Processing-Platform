@@ -25,6 +25,7 @@ page image via `OCRResult.source_image`.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 
@@ -163,3 +164,62 @@ class VLMExtractor(_BaseLLMExtractor):
         text = resp.content[0].text
         # Grounding uses OCR text if present; otherwise trust is model-only.
         return self._to_predictions(self._parse_json(text), ocr.text)
+
+
+# ---------------------------------------------------------------------------
+# RecordedLLMClient — a drop-in for `anthropic.Anthropic()` that REPLAYS saved
+# model responses instead of calling the network. Same `.messages.create(...)`
+# surface the extractor already uses, so nothing else changes.
+#
+# Why it exists (three real uses, not just tests):
+#   • Deterministic tests of the LLM path with no API key and no network.
+#   • Reproducible benchmarks — the shadow-mode numbers are stable run to run.
+#   • A response cache — re-scoring the same corpus costs nothing after the
+#     first pass (LLM calls are the expensive part of an extraction pipeline).
+#
+# Responses are keyed by an MD5 of the invoice *document text* (the OCR lines),
+# which is exactly what distinguishes one invoice from another. Build the cache
+# once from real API calls (or any oracle), then replay it forever.
+# ---------------------------------------------------------------------------
+
+def document_key(document: str) -> str:
+    """Stable per-invoice cache key = MD5 of the OCR document text."""
+    return hashlib.md5(document.strip().encode("utf-8")).hexdigest()
+
+
+class _Msg:
+    """Mimics anthropic's response object: resp.content[0].text."""
+    def __init__(self, text: str):
+        self.content = [type("Block", (), {"text": text})()]
+
+
+class _Messages:
+    def __init__(self, parent: "RecordedLLMClient"):
+        self._parent = parent
+
+    def create(self, *, model, max_tokens, system, messages, **_):
+        # Recover the invoice text from the user prompt the extractor built.
+        user = messages[-1]["content"]
+        if isinstance(user, list):  # VLM-style content blocks
+            user = " ".join(b.get("text", "") for b in user if isinstance(b, dict))
+        document = user.split("Invoice text:\n", 1)[-1].strip()
+        key = document_key(document)
+        if key not in self._parent.responses:
+            raise KeyError(
+                f"No recorded LLM response for document key {key[:8]}… "
+                f"({len(self._parent.responses)} cached). Rebuild the cache."
+            )
+        return _Msg(self._parent.responses[key])
+
+
+class RecordedLLMClient:
+    """Replay saved responses. `responses` maps document_key -> raw JSON string."""
+
+    def __init__(self, responses: dict[str, str]):
+        self.responses = responses
+        self.messages = _Messages(self)
+
+    @classmethod
+    def from_file(cls, path: str) -> "RecordedLLMClient":
+        with open(path, encoding="utf-8") as fh:
+            return cls(json.load(fh))

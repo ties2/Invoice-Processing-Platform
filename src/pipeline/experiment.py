@@ -23,8 +23,16 @@ import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 
+from src.pipeline.canonical import canonicalize
 from src.pipeline.extractor import Extractor, FieldPrediction
 from src.pipeline.ocr import OCRResult
+
+
+def _canonicalize_predictions(preds: list[FieldPrediction]) -> list[FieldPrediction]:
+    """Normalize every value so comparison and storage are format-agnostic."""
+    for p in preds:
+        p.value = canonicalize(p.field_name, p.value)
+    return preds
 
 
 class ExperimentMode(str, Enum):
@@ -92,7 +100,7 @@ class ExtractionExperiment:
     def run(
         self, ocr: OCRResult, routing_key: str | None = None
     ) -> tuple[list[FieldPrediction], ExperimentReport]:
-        champion_preds = self.champion.extract(ocr)
+        champion_preds = _canonicalize_predictions(self.champion.extract(ocr))
 
         # Champion-only: nothing to compare, champion always serves.
         if self.mode == ExperimentMode.CHAMPION_ONLY or self.challenger is None:
@@ -106,7 +114,7 @@ class ExtractionExperiment:
             return champion_preds, report
 
         # Shadow / canary: run the challenger too.
-        challenger_preds = self.challenger.extract(ocr)
+        challenger_preds = _canonicalize_predictions(self.challenger.extract(ocr))
         comparisons, agreement_rate = self._compare(champion_preds, challenger_preds)
 
         # Decide who actually serves the result.

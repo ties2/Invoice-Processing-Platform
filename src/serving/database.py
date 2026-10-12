@@ -11,7 +11,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from src.serving.config import settings
 
 SQLALCHEMY_DATABASE_URL = (
-    f"postgresql://{settings.postgres_user}:{settings.postgres_password}"
+    f"postgresql+psycopg2://{settings.postgres_user}:{settings.postgres_password}"
     f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
 )
 

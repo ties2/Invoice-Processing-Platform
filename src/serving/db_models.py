@@ -101,6 +101,11 @@ class Invoice(Base):
         back_populates="invoice",
         cascade="all, delete-orphan",
     )
+    runs = relationship(
+        "ExtractionRun",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         # Harden the status column at the DB level (fixes the reference project's
@@ -113,8 +118,34 @@ class Invoice(Base):
     )
 
 
+class ExtractionRun(Base):
+    """One processing attempt for one invoice.
+
+    Reprocessing an invoice (e.g. with a new extractor version, or after a model
+    upgrade) creates a new run rather than silently overwriting history. This
+    keeps a full audit trail — what each version produced and when — and is what
+    lets shadow comparisons and "what would the new model have booked?" be
+    answered from the database rather than only in memory.
+    """
+
+    __tablename__ = "extraction_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False, index=True)
+    extractor_version = Column(String, nullable=False)
+    served_by = Column(String, nullable=False, default="champion")  # champion | challenger
+    overall_confidence = Column(Float, nullable=False, default=0.0)
+    decision = Column(String, nullable=False)  # the routing status this run produced
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    invoice = relationship("Invoice", back_populates="runs")
+    fields = relationship(
+        "ExtractedField", back_populates="run", cascade="all, delete-orphan"
+    )
+
+
 class ExtractedField(Base):
-    """One extracted field for one invoice, with its own confidence score.
+    """One extracted field, belonging to a specific extraction run.
 
     We store confidence *per field*, not just per document, because that is what
     lets us route intelligently (e.g. total is uncertain even though supplier is
@@ -125,6 +156,8 @@ class ExtractedField(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
+    # Nullable FK so historical rows created before runs existed still load.
+    run_id = Column(Integer, ForeignKey("extraction_runs.id"), nullable=True, index=True)
 
     field_name = Column(String, nullable=False)     # e.g. "total"
     field_value = Column(String, nullable=True)      # stored as text, typed on read
@@ -137,6 +170,7 @@ class ExtractedField(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     invoice = relationship("Invoice", back_populates="fields")
+    run = relationship("ExtractionRun", back_populates="fields")
 
     __table_args__ = (
         # A given field appears at most once per invoice on the current record.

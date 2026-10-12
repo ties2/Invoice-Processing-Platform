@@ -11,7 +11,13 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from src.pipeline.extractor import FieldPrediction
-from src.serving.db_models import Correction, ExtractedField, Invoice, InvoiceStatus
+from src.serving.db_models import (
+    Correction,
+    ExtractedField,
+    ExtractionRun,
+    Invoice,
+    InvoiceStatus,
+)
 
 
 class InvoiceRepository:
@@ -61,15 +67,51 @@ class InvoiceRepository:
         })
         self.db.commit()
 
+    # --- extraction runs (versioned history) ---------------------------------
+    def create_run(
+        self,
+        invoice_id: int,
+        extractor_version: str,
+        served_by: str,
+        overall_confidence: float,
+        decision: str,
+    ) -> ExtractionRun:
+        run = ExtractionRun(
+            invoice_id=invoice_id,
+            extractor_version=extractor_version,
+            served_by=served_by,
+            overall_confidence=overall_confidence,
+            decision=decision,
+        )
+        self.db.add(run)
+        self.db.commit()
+        self.db.refresh(run)
+        return run
+
+    def list_runs(self, invoice_id: int) -> list[ExtractionRun]:
+        return (
+            self.db.query(ExtractionRun)
+            .filter(ExtractionRun.invoice_id == invoice_id)
+            .order_by(ExtractionRun.id.desc())
+            .all()
+        )
+
     # --- extracted fields ----------------------------------------------------
-    def replace_fields(self, invoice_id: int, predictions: list[FieldPrediction]) -> None:
-        """Overwrite the current field record for an invoice (idempotent reprocess)."""
+    def replace_fields(
+        self, invoice_id: int, predictions: list[FieldPrediction], run_id: int | None = None
+    ) -> None:
+        """Set the current field record for an invoice, tagged with its run.
+
+        The `extracted_fields` table always holds the *current* values (unique per
+        field), while `extraction_runs` preserves the history of every attempt.
+        """
         self.db.query(ExtractedField).filter(
             ExtractedField.invoice_id == invoice_id
         ).delete()
         for p in predictions:
             self.db.add(ExtractedField(
                 invoice_id=invoice_id,
+                run_id=run_id,
                 field_name=p.field_name,
                 field_value=p.value,
                 confidence=p.confidence,

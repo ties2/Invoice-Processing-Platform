@@ -72,7 +72,15 @@ class InvoiceService:
             self.repo.set_status(invoice_id, InvoiceStatus.FAILED)
             raise
 
-        self.repo.replace_fields(invoice_id, outcome.predictions)
+        # Record this attempt as a versioned run, then attach the current fields.
+        run = self.repo.create_run(
+            invoice_id=invoice_id,
+            extractor_version=outcome.extractor_version,
+            served_by=outcome.served_by,
+            overall_confidence=outcome.decision.overall_confidence,
+            decision=outcome.decision.status.value,
+        )
+        self.repo.replace_fields(invoice_id, outcome.predictions, run_id=run.id)
         self.repo.save_result(
             invoice_id=invoice_id,
             supplier=outcome.supplier,

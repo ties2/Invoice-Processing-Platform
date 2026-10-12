@@ -36,3 +36,17 @@ def test_metrics_endpoint(client, clean_invoice_bytes):
     m = client.get("/metrics").json()
     assert m["total_processed"] == 1
     assert m["automatic_processing_rate"] == 1.0
+
+
+def test_reprocess_creates_run_history(client, clean_invoice_bytes):
+    from src.serving.repository import InvoiceRepository
+    import src.serving.database as database
+
+    iid = client.post("/invoices", files={"file": ("k.txt", clean_invoice_bytes, "text/plain")}).json()["id"]
+    client.post(f"/invoices/{iid}/process")
+    client.post(f"/invoices/{iid}/process")  # reprocess
+
+    repo = InvoiceRepository(database.SessionLocal())
+    runs = repo.list_runs(iid)
+    assert len(runs) == 2  # history preserved, not overwritten
+    assert all(r.extractor_version for r in runs)
